@@ -226,7 +226,61 @@ A partir de esa respuesta, el cliente es el responsable de evaluar si la versió
 
 ---
 
-## 6. Reproducción y Ejecución
+## 6. Actividad E: Diagrama de Secuencia de la Sesión Completa
+
+A continuación se presenta el diagrama de secuencia en formato Mermaid que modela la sesión completa del cliente mínimo (`cliente_mcp.mjs`) contra el servidor de sistema de archivos MCP, tal como quedó registrada en `salida/traza.jsonl` (13 mensajes divididos en tres fases: inicialización, operación y cierre):
+
+```mermaid
+sequenceDiagram
+participant C as Cliente
+participant S as Servidor
+
+Note over C,S: Inicializacion
+C->>S: initialize (id 1)
+S-->>C: result con version, capacidades e identidad (id 1)
+C-)S: notifications/initialized
+
+Note over C,S: Operacion
+C->>S: tools/list (id 2)
+S-->>C: result con lista de herramientas disponibles (id 2)
+C->>S: tools/call list_directory path: datos (id 3)
+S-->>C: result [FILE] calificaciones.csv (id 3)
+C->>S: tools/call read_text_file path: datos/calificaciones.csv (id 4)
+S-->>C: result contenido de calificaciones.csv (id 4)
+C->>S: tools/call read_text_file path: C:/Windows/win.ini (id 5)
+S-->>C: result con isError: true [Error de ejecucion de herramienta] (id 5)
+C->>S: herramientas/inventada (id 6)
+S-->>C: error -32601 Method not found [Error de protocolo] (id 6)
+
+Note over C,S: Cierre
+Note over C,S: El cliente cierra stdin (EOF) y el proceso del servidor finaliza
+```
+
+### Detalle de las Fases del Diagrama
+
+1. **Fase de Inicialización:**
+   * **Mensaje 1 (`C->>S`):** Solicitud `initialize` (id 1) proponiendo la versión de protocolo `2025-06-18` y capacidades vacías `{}`.
+   * **Mensaje 2 (`S-->>C`):** Respuesta exitosa `result` (id 1) del servidor confirmando la versión `2025-06-18`, sus capacidades y su identidad (`secure-filesystem-server`).
+   * **Mensaje 3 (`C-)S`):** Notificación unidireccional `notifications/initialized` (sin id) que da por concluida la negociación.
+
+2. **Fase de Operación:**
+   * **Mensaje 4 (`C->>S`):** Solicitud `tools/list` (id 2) para descubrir las herramientas ofrecidas por el servidor.
+   * **Mensaje 5 (`S-->>C`):** Respuesta `result` (id 2) con el catálogo completo de herramientas (`read_text_file`, `list_directory`, etc.).
+   * **Mensaje 6 (`C->>S`):** Solicitud `tools/call` (id 3) ejecutando `list_directory` sobre la carpeta `datos`.
+   * **Mensaje 7 (`S-->>C`):** Respuesta `result` (id 3) listando el archivo `[FILE] calificaciones.csv`.
+   * **Mensaje 8 (`C->>S`):** Solicitud `tools/call` (id 4) ejecutando `read_text_file` sobre `datos/calificaciones.csv`.
+   * **Mensaje 9 (`S-->>C`):** Respuesta `result` (id 4) devolviendo el texto plano del archivo CSV.
+   * **Mensaje 10 (`C->>S`):** Solicitud `tools/call` (id 5) intentando leer `C:/Windows/win.ini`.
+   * **Mensaje 11 (`S-->>C`):** Respuesta con `"result"` e `"isError": true` (**Error de ejecución de herramienta**) por violación de contención de directorio.
+   * **Mensaje 12 (`C->>S`):** Solicitud con método inexistente `herramientas/inventada` (id 6).
+   * **Mensaje 13 (`S-->>C`):** Respuesta con `"error"` y código `-32601` (**Error de protocolo**) al no existir el método solicitado.
+
+3. **Fase de Cierre:**
+   * El cliente ejecuta `servidor.stdin.end()`, cerrando el flujo de entrada estándar (`EOF`). Al no tener más datos por procesar, el subproceso del servidor finaliza ordenadamente.
+
+---
+
+## 7. Reproducción y Ejecución
 
 Para ejecutar el cliente y regenerar la traza:
 
