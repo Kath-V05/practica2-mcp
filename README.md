@@ -146,7 +146,87 @@ En formato legible:
 
 ---
 
-## 5. Reproducción y Ejecución
+## 5. Actividad D: Comparación de Dos Clientes MCP
+
+En esta actividad se comparó el proceso de inicialización (`initialize`) y negociación de protocolo de dos clientes distintos conectados contra el mismo servidor (`@modelcontextprotocol/server-filesystem`):
+* **MCP Inspector (`salida/historial_inspector.json`)**: Cliente interactivo de diagnóstico oficial de MCP.
+* **Cliente mínimo (`salida/traza.jsonl`)**: Cliente ligero implementado en Node.js sobre `stdio`.
+
+---
+
+### 5.1 Tabla Comparativa de Inicialización
+
+| Característica / Campo | Inspector (`historial_inspector.json`) | Cliente mínimo (`traza.jsonl`) |
+| :--- | :--- | :--- |
+| **Nombre y versión del cliente (`clientInfo`)** | `mcp-inspector` v2.14.0 | `cliente-minimo` v1.0.0 |
+| **Versión del protocolo que propuso el cliente** | `2025-11-25` | `2025-06-18` |
+| **Versión del protocolo que respondió el servidor** | `2025-11-25` | `2025-06-18` |
+| **Capacidades que declaró el cliente (`capabilities`)** | Declaró múltiples capacidades avanzadas:<br>• `roots: { listChanged: true }`<br>• `sampling: {}`<br>• `elicitation: { form: {}, url: {} }`<br>• `tasks: { list: {}, cancel: {}, requests: { sampling: {}, elicitation: {} } }`<br>• `extensions: { ... }` | Objeto vacío (`{}`): No declaró ninguna capacidad especial. |
+| **¿El servidor envió una solicitud al cliente? ¿Cuál?** | **Sí**. Envió la solicitud con método `"roots/list"` e `id: 0`. | **No**. El servidor no envió ninguna solicitud al cliente. |
+
+---
+
+### 5.2 Explicación de por qué el Servidor se Comportó Distinto con Cada Cliente
+
+El comportamiento diferenciado del servidor responde a los principios de diseño del **Model Context Protocol**:
+
+1. **Invocación bidireccional y negociación de capacidades (`roots/list`):**
+   * El protocolo MCP sobre `stdio` es **completamente bidireccional**: el servidor no solo responde a las solicitudes del cliente, sino que también puede actuar como emisor de solicitudes hacia el cliente si éste declara soportarlas.
+   * En el caso del **Inspector**, el cliente declaró la capacidad `"roots": { "listChanged": true }`. Esto le indica formalmente al servidor de sistema de archivos que el cliente gestiona dinámicamente las carpetas permitidas de trabajo (*roots*). En consecuencia, inmediatamente después de recibir la notificación `notifications/initialized`, el servidor envió al Inspector la solicitud inversa `roots/list` (id: 0) para consultar qué directorios raíz estaban autorizados.
+   * En el caso del **Cliente mínimo**, el campo de capacidades fue un objeto vacío (`capabilities: {}`). Al no declarar soporte para `roots`, el servidor emitió el mensaje informativo interno:  
+     `Client does not support MCP Roots, using allowed directories set from server args: [ 'C:\AgentesInt\practica2-mcp' ]`.  
+     Por este motivo, el servidor se abstuvo de enviar la solicitud `roots/list` y utilizó directamente la ruta pasada como argumento de línea de comandos en su inicio.
+
+2. **Negociación retrocompatible de versión (`protocolVersion`):**
+   * El Inspector propuso `2025-11-25` y el cliente mínimo propuso `2025-06-18`.
+   * El servidor `@modelcontextprotocol/server-filesystem` soporta ambas especificaciones; por tanto, en ambos casos acordó operar con la versión exacta que cada cliente propuso, garantizando retrocompatibilidad con clientes anteriores y aprovechamiento de características modernas con clientes recientes.
+
+---
+
+### 5.3 Experimento con Versión Inexistente (`protocolVersion: '1999-01-01'`)
+
+Para observar el mecanismo de negociación ante versiones no compatibles, se modificó temporalmente `cliente_mcp.mjs` proponiendo una versión inexistente:
+
+```javascript
+await solicitar('initialize', {
+  protocolVersion: '1999-01-01',
+  capabilities: {},
+  clientInfo: { name: 'cliente-minimo', version: '1.0.0' },
+});
+```
+
+#### Resultado Observado:
+* **Versión propuesta por el cliente:** `'1999-01-01'`
+* **Versión respondida por el servidor:** `'2025-11-25'`
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2025-11-25",
+    "capabilities": {
+      "tools": { "listChanged": true },
+      "resources": { "listChanged": true }
+    },
+    "serverInfo": {
+      "name": "secure-filesystem-server",
+      "version": "2.3.0"
+    }
+  }
+}
+```
+
+#### Explicación Técnica del Experimento:
+El servidor MCP **no interrumpe la conexión ni arroja un error de protocolo** cuando el cliente solicita una versión desconocida. Siguiendo la especificación estándar de MCP, cuando el cliente propone una versión que el servidor no soporta, el servidor responde con la versión más reciente o más alta que tiene implementada (en este caso, `2025-11-25`). 
+
+A partir de esa respuesta, el cliente es el responsable de evaluar si la versión devuelta por el servidor le es compatible para continuar la conversación o si debe cerrar el canal de comunicación.
+
+> **Restauración:** Concluida la prueba, se restauró el valor original `protocolVersion: '2025-06-18'` en `cliente_mcp.mjs` y se ejecutó nuevamente el cliente, asegurando que la traza en `salida/traza.jsonl` mantenga intactos los 13 mensajes correspondientes a la Actividad C.
+
+---
+
+## 6. Reproducción y Ejecución
 
 Para ejecutar el cliente y regenerar la traza:
 
