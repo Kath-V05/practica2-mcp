@@ -2,78 +2,173 @@
 
 ## 1. Descripción
 
-Esta práctica profundiza en el funcionamiento interno del **Model Context Protocol (MCP)** implementando y analizando la comunicación cliente-servidor a bajo nivel mediante el transporte estándar `stdio` y mensajes formateados bajo la especificación **JSON-RPC 2.0**.
+Esta práctica consiste en el análisis, implementación y evaluación experimental del **Model Context Protocol (MCP)** a bajo nivel. A diferencia de implementaciones de alto nivel donde librerías o SDKs ocultan los detalles del canal, aquí se examina de manera directa el intercambio de mensajes en formato **JSON-RPC 2.0** a través del transporte estándar **`stdio`** (entrada y salida estándar).
 
-A través de esta práctica se explora cómo un cliente se conecta directamente a un servidor MCP (`@modelcontextprotocol/server-filesystem`), gestiona el ciclo de vida del protocolo (fases de negociación, inicialización y notificación), lista herramientas, invoca ejecuciones y maneja las distintas categorías de respuestas y errores que el estándar contempla.
+A lo largo de la práctica se interactúa con el servidor oficial de sistema de archivos de MCP, primero mediante la herramienta gráfica de diagnóstico **MCP Inspector** y posteriormente mediante la construcción y ejecución de un **cliente mínimo en Node.js sin dependencias**. Se analizan las etapas de negociación e inicialización, la invocación de herramientas, el manejo de errores en distintas capas arquitectónicas y la bidireccionalidad del protocolo.
 
 * **Materia:** Desarrollo de Agentes Inteligentes (ACD-2504).
-* **Entorno operativo:** Windows 11 (x64) con Node.js v24.22.1 y npm/npx v11.19.1.
-* **Servidor MCP evaluado:** `@modelcontextprotocol/server-filesystem` (v2.3.0).
-* **Transporte:** `stdio` (comunicación interproceso mediante entrada y salida estándar en formato JSON delimitado por saltos de línea).
+* **Sistema operativo:** Windows 11 (x64) [versión 10.0.26100].
+* **Versión de Node.js:** v24.22.1 (con npm/npx v11.19.1).
+* **Versión del Inspector:** `@modelcontextprotocol/inspector` v2.14.0 (`mcp-inspector` v2.14.0).
+* **Versión del servidor:** `@modelcontextprotocol/server-filesystem` v2.3.0 (`secure-filesystem-server` v2.3.0).
 
 ---
 
-## 2. Estructura del Proyecto
+## 2. Requisitos y reproducción
 
-```text
-practica2-mcp/
-├── cliente_mcp.mjs          # Cliente MCP mínimo en Node.js sin dependencias externas
-├── mcp.json                 # Configuración del servidor filesystem para clientes compatibles
-├── README.md                # Documentación técnica y análisis comparativo de errores
-├── datos/
-│   └── calificaciones.csv   # Dataset de prueba para lectura de archivos
-├── evidencias/              # Capturas de pantalla de la inspección con MCP Inspector (Actividad A)
-│   ├── Captura de pantalla 2026-11-11 094738.png
-│   ├── Captura de pantalla 2026-11-11 095019.png
-│   ├── Captura de pantalla 2026-11-11 095444.png
-│   ├── Captura de pantalla 2026-11-11 095513.png
-│   └── Captura de pantalla 2026-11-11 095828.png
-└── salida/
-    ├── historial_inspector.json # Registro de mensajes exportado desde MCP Inspector
-    └── traza.jsonl              # Traza completa de la conversación generada por cliente_mcp.mjs (13 mensajes)
+### Requisitos del sistema
+Para reproducir esta práctica desde cero en otra máquina se requiere:
+1. **Node.js:** Versión 18.0 o superior (verificado y ejecutado sobre Node.js v24.22.1). Incluye `npx` y los módulos nativos requeridos (`node:child_process`, `node:readline`, `node:fs`).
+2. **Git:** Para clonar el repositorio y gestionar el control de versiones.
+3. **Conexión a Internet:** Para la primera ejecución de `npx`, que descarga bajo demanda los paquetes de MCP si no se encuentran en la caché local.
+
+### Comandos para reproducir la práctica paso a paso
+
+1. **Clonar el repositorio:**
+   ```bash
+   git clone https://github.com/Kath-V05/practica2-mcp.git
+   cd practica2-mcp
+   ```
+
+2. **Reproducir la Actividad A (Inspección gráfica con MCP Inspector):**
+   Ejecuta el Inspector conectándolo al servidor filesystem delimitado a la carpeta actual:
+   ```bash
+   npx @modelcontextprotocol/inspector npx -y @modelcontextprotocol/server-filesystem .
+   ```
+   Abre en el navegador la URL local indicada (por defecto `http://localhost:5173`), explora las herramientas y recursos disponibles, y exporta el historial en `salida/historial_inspector.json`.
+
+3. **Reproducir las Actividades B y C (Cliente mínimo en Node.js):**
+   Ejecuta el script del cliente MCP mínimo:
+   ```bash
+   node cliente_mcp.mjs
+   ```
+   El script iniciará el servidor como subproceso, ejecutará el ciclo de inicialización, descubrirá herramientas, invocará `list_directory`, realizará lecturas de prueba y finalizará el servidor enviando EOF a `stdin`.
+
+4. **Verificar los resultados generados:**
+   * Archivo de traza: [`salida/traza.jsonl`](./salida/traza.jsonl) debe contener exactamente **13 líneas** (13 mensajes JSON-RPC).
+   * Verificación rápida en PowerShell:
+     ```powershell
+     Get-Content salida\traza.jsonl | Measure-Object -Line
+     ```
+
+---
+
+## 3. Actividad A: Inspección con MCP Inspector
+
+En la Actividad A se empleó la herramienta oficial `@modelcontextprotocol/inspector` para diagnosticar interactivamente el servidor de archivos. La sesión completa quedó guardada en el archivo [`salida/historial_inspector.json`](./salida/historial_inspector.json).
+
+### Datos de la Inicialización
+* **Cliente:** `mcp-inspector` versión `2.14.0`.
+* **Protocolo propuesto por el cliente:** `2025-11-25`.
+* **Servidor conectado:** `secure-filesystem-server` versión `2.3.0`.
+* **Protocolo acordado por el servidor:** `2025-11-25`.
+* **Capacidades declaradas por el cliente:** `roots` (con `listChanged: true`), `sampling`, `elicitation`, `tasks` y `extensions`.
+* **Capacidades respondidas por el servidor:** `tools: { listChanged: true }`, `resources: { listChanged: true }`.
+
+### Tabla de Mensajes del Inspector
+
+A continuación se resume la secuencia completa de los 11 eventos registrados en [`salida/historial_inspector.json`](./salida/historial_inspector.json):
+
+| # | Origen | Dirección | Método / Acción | ID | Resultado / Descripción |
+| :-: | :--- | :--- | :--- | :-: | :--- |
+| **1** | Cliente | Solicitud | `initialize` | `0` | Negociación de protocolo (`2025-11-25`), capacidades del Inspector y metadatos del cliente. |
+| **2** | Servidor | Respuesta | `initialize` (response) | `0` | Servidor acepta versión `2025-11-25`, confirma identidad `secure-filesystem-server` y capacidades (`tools`, `resources`). |
+| **3** | Cliente | Notificación | `notifications/initialized` | — | Cliente notifica que la fase de handshake ha concluido exitosamente. |
+| **4** | Cliente | Solicitud | `resources/list` | `1` | Consulta la lista de recursos expuestos por el servidor (devuelve lista vacía `[]`). |
+| **5** | Cliente | Solicitud | `tools/list` | `2` | Consulta el catálogo de herramientas disponibles (devuelve 14 herramientas de manipulación de archivos). |
+| **6** | Cliente | Solicitud | `resources/templates/list` | `3` | Consulta plantillas de recursos registradas (devuelve lista vacía `[]`). |
+| **7** | Servidor | Solicitud | `roots/list` | `0` | **Petición inversa del servidor al cliente**: consulta las raíces permitidas dado que el cliente declaró soportar `roots`. |
+| **8** | Cliente | Respuesta | `roots/list` (response) | `0` | Inspector responde con la lista de directorios raíz autorizados. |
+| **9** | Cliente | Solicitud | `tools/call` (`list_directory`) | `4` | Lista contenido de `C:\AgentesInt\practica2-mcp` (devuelve `.git`, `datos`, `evidencias`, `mcp.json`, `salida`). |
+| **10** | Cliente | Solicitud | `tools/call` (`search_files`) | `5` | Búsqueda por patrón `.txt` en el workspace (devuelve `No matches found`). |
+| **11** | Cliente | Solicitud | `tools/call` (`search_files`) | `6` | Búsqueda por patrón `*.txt` en el workspace (devuelve `No matches found`). |
+| **12** | Cliente | Solicitud | `tools/call` (`write_file`) | `7` | Intento de escritura erróneo pasando ruta de directorio; falla con `isError: true` (`Refusing to write: not a regular file`). |
+| **13** | Cliente | Solicitud | `tools/call` (`search_files`) | `8` | Búsqueda por patrón `*.ts` en el workspace (devuelve `No matches found`). |
+
+### Capturas de Pantalla de la Evidencia
+
+Las capturas tomadas durante la sesión con el Inspector se encuentran almacenadas en la carpeta [`evidencias/`](./evidencias/):
+
+1. **Captura 1 — Inicialización e interfaz principal:**  
+   ![Captura Inspector 1](./evidencias/Captura%20de%20pantalla%202026-11-11%20094738.png)
+2. **Captura 2 — Conexión y capacidades:**  
+   ![Captura Inspector 2](./evidencias/Captura%20de%20pantalla%202026-11-11%20095019.png)
+3. **Captura 3 — Exploración de herramientas disponibles:**  
+   ![Captura Inspector 3](./evidencias/Captura%20de%20pantalla%202026-11-11%20095444.png)
+4. **Captura 4 — Ejecución de herramientas en tiempo real:**  
+   ![Captura Inspector 4](./evidencias/Captura%20de%20pantalla%202026-11-11%20095513.png)
+5. **Captura 5 — Historial de mensajes y traza de red:**  
+   ![Captura Inspector 5](./evidencias/Captura%20de%20pantalla%202026-11-11%20095828.png)
+
+---
+
+## 4. Actividad B: Cliente MCP Mínimo
+
+En la Actividad B se construyó el cliente [`cliente_mcp.mjs`](./cliente_mcp.mjs) en JavaScript moderno (ESM) para comunicarse directamente con el servidor a través de sus canales estándar `stdio`.
+
+### Tabla de los Siete Mensajes Iniciales
+
+La interacción inicial entre el cliente mínimo y el servidor produjo exactamente siete mensajes antes de incorporar las pruebas adicionales:
+
+| Mensaje | Dirección | Objeto JSON-RPC / Método | ID | Significado y Propósito |
+| :-: | :--- | :--- | :-: | :--- |
+| **1** | `CLIENTE -> SERVIDOR` | `{"method": "initialize", "params": {...}}` | `1` | El cliente inicia la sesión, propone versión de protocolo `2025-06-18`, capacidades vacías `{}` y se identifica como `cliente-minimo` v1.0.0. |
+| **2** | `SERVIDOR -> CLIENTE` | `{"result": {"protocolVersion": "2025-06-18", ...}}` | `1` | El servidor confirma la versión negociada, entrega sus capacidades (`tools`, `resources`) y se identifica como `secure-filesystem-server` v2.3.0. |
+| **3** | `CLIENTE -> SERVIDOR` | `{"method": "notifications/initialized"}` | — | Notificación obligatoria del cliente para formalizar que la inicialización concluyó; no lleva `id` ni espera respuesta. |
+| **4** | `CLIENTE -> SERVIDOR` | `{"method": "tools/list", "params": {}}` | `2` | Solicitud del cliente para obtener la lista de herramientas que el servidor expone. |
+| **5** | `SERVIDOR -> CLIENTE` | `{"result": {"tools": [...]}}` | `2` | Respuesta del servidor con los esquemas JSON de las 14 herramientas soportadas. |
+| **6** | `CLIENTE -> SERVIDOR` | `{"method": "tools/call", "params": {"name": "list_directory", "arguments": {"path": "datos"}}}` | `3` | Invocación de la herramienta `list_directory` apuntando a la subcarpeta local `datos`. |
+| **7** | `SERVIDOR -> CLIENTE` | `{"result": {"content": [{"type": "text", "text": "[FILE] calificaciones.csv"}]}}` | `3` | Respuesta de ejecución exitosa indicando que dentro de `datos` se encuentra el archivo `calificaciones.csv`. |
+
+### Descripción de la Herramienta `list_directory`
+
+A partir de la inspección del esquema devuelto por el servidor en `tools/list`:
+* **Nombre:** `list_directory`
+* **Título:** *List Directory*
+* **Propósito:** Lista los archivos y subdirectorios ubicados directamente dentro de una ruta permitida, indicando para cada elemento si es un archivo (`[FILE]`) o un directorio (`[DIR]`).
+* **Parámetros de entrada (`inputSchema`):**
+  * `path` (cadena de texto, obligatorio): Ruta relativa al directorio de trabajo o absoluta; debe resolver estrictamente dentro de los directorios permitidos (*allowed directories*).
+* **Parámetros de salida (`outputSchema`):**
+  * `content` (cadena de texto formateada): Una línea por cada entrada encontrada dentro del directorio.
+* **Anotaciones de comportamiento:**
+  * `readOnlyHint: true`: Operación de solo lectura que no altera el estado del sistema de archivos.
+  * `idempotentHint: true`: Invocarla repetidas veces con los mismos argumentos produce el mismo resultado si los archivos no han cambiado.
+  * `destructiveHint: false`: No elimina ni sobrescribe información.
+  * `openWorldHint: false`: Su ámbito está confinado al sistema de archivos local autorizado.
+
+---
+
+## 5. Actividad C: Extensión del Cliente y Análisis de Errores
+
+En la Actividad C se agregaron tres solicitudes adicionales antes del paso 5 (`servidor.stdin.end()`), ordenadas según las instrucciones de la práctica.
+
+### Código Agregado en `cliente_mcp.mjs`
+
+```javascript
+// 1. Lectura correcta: lee datos/calificaciones.csv
+await solicitar('tools/call', {
+  name: 'read_text_file',
+  arguments: { path: 'datos/calificaciones.csv' },
+});
+
+// 2. Lectura prohibida: intenta acceder a un archivo fuera de la carpeta permitida
+await solicitar('tools/call', {
+  name: 'read_text_file',
+  arguments: { path: 'C:/Windows/win.ini' },
+});
+
+// 3. Método inexistente: envía una solicitud con un método no registrado
+await solicitar('herramientas/inventada', {});
 ```
 
----
+### Respuestas Fallidas (Copiadas Textualmente de `salida/traza.jsonl`)
 
-## 3. Arquitectura del Cliente Mínimo (`cliente_mcp.mjs`)
-
-El cliente implementado en `cliente_mcp.mjs` no requiere librerías externas y opera directamente sobre los módulos nativos de Node.js (`child_process`, `readline`, `fs`):
-
-1. **Lanzamiento del servidor (`spawn`):** Inicia el servidor `npx -y @modelcontextprotocol/server-filesystem .` como proceso hijo con canales de entrada y salida tubería (`stdio: ['pipe', 'pipe', 'inherit']`).
-2. **Serialización y envío JSON-RPC:**
-   - `solicitar(method, params)`: Asigna un identificador incremental `id`, envía el mensaje con `"jsonrpc": "2.0"` a `stdin` y guarda una promesa en un mapa de pendientes.
-   - `notificar(method)`: Envía un mensaje unidireccional sin campo `id`, el cual no espera respuesta del servidor.
-3. **Recepción y procesamiento asíncrono:** Lee la salida `stdout` línea por línea mediante `readline`, deserializa el JSON, lo registra en `salida/traza.jsonl` y resuelve la promesa correspondiente al `id` del mensaje.
-4. **Cierre de conexión:** Envía `EOF` a la entrada del servidor (`servidor.stdin.end()`), finalizando ordenadamente el subproceso.
-
----
-
-## 4. Actividad C: Análisis de Respuestas y Diferenciación de Errores
-
-En la **Actividad C**, se modificó la conversación del cliente agregando tres solicitudes antes del cierre del servidor (paso 5):
-1. **Lectura correcta:** Llamada a `tools/call` con la herramienta `read_text_file` sobre `datos/calificaciones.csv`.
-2. **Lectura prohibida:** Llamada a `tools/call` con `read_text_file` sobre una ruta externa al directorio delimitado (`C:/Windows/win.ini`).
-3. **Método inexistente:** Envío de una solicitud con un método JSON-RPC no registrado en el servidor (`herramientas/inventada`).
-
-La ejecución del cliente produjo un total de **13 mensajes** en `salida/traza.jsonl`. A continuación se analizan en detalle las dos solicitudes que fallaron.
-
----
-
-### 4.1 Respuestas Fallidas (Copiadas Textualmente de la Traza)
-
-#### Respuesta 1: Lectura fuera del directorio permitido (ID 5)
-
-* **Solicitud enviada (Línea 10 de `salida/traza.jsonl`):**
-```json
-{"direccion":"CLIENTE -> SERVIDOR","mensaje":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_text_file","arguments":{"path":"C:/Windows/win.ini"}}}}
-```
-
-* **Respuesta recibida del servidor (Línea 11 de `salida/traza.jsonl`):**
+#### 1. Respuesta de Lectura Prohibida (Mensaje 11 de la Traza)
 ```json
 {"direccion":"SERVIDOR -> CLIENTE","mensaje":{"result":{"content":[{"type":"text","text":"Access denied - path outside allowed directories: C:\\Windows\\win.ini not in C:\\AgentesInt\\practica2-mcp"}],"isError":true},"jsonrpc":"2.0","id":5}}
 ```
 
-En formato legible:
+En formato estructurado:
 ```json
 {
   "jsonrpc": "2.0",
@@ -90,21 +185,12 @@ En formato legible:
 }
 ```
 
----
-
-#### Respuesta 2: Método RPC no existente (ID 6)
-
-* **Solicitud enviada (Línea 12 de `salida/traza.jsonl`):**
-```json
-{"direccion":"CLIENTE -> SERVIDOR","mensaje":{"jsonrpc":"2.0","id":6,"method":"herramientas/inventada","params":{}}}
-```
-
-* **Respuesta recibida del servidor (Línea 13 de `salida/traza.jsonl`):**
+#### 2. Respuesta de Método Inexistente (Mensaje 13 de la Traza)
 ```json
 {"direccion":"SERVIDOR -> CLIENTE","mensaje":{"jsonrpc":"2.0","id":6,"error":{"code":-32601,"message":"Method not found"}}}
 ```
 
-En formato legible:
+En formato estructurado:
 ```json
 {
   "jsonrpc": "2.0",
@@ -116,76 +202,44 @@ En formato legible:
 }
 ```
 
----
+### Explicación de la Diferencia entre Ambos Errores
 
-### 4.2 Explicación y Diferenciación Técnica de los Errores
-
-| Criterio | Solicitud 2 (Lectura prohibida - ID 5) | Solicitud 3 (Método inventado - ID 6) |
+| Criterio | Solicitud a `read_text_file` (`C:/Windows/win.ini`) | Solicitud a `herramientas/inventada` |
 | :--- | :--- | :--- |
-| **Categoría del error** | **Error de ejecución de herramienta** (*Tool Execution Error*) | **Error de protocolo** (*Protocol / JSON-RPC Error*) |
-| **Capa donde ocurre** | **Capa de aplicación / lógica de negocio** del servidor MCP | **Capa de transporte / enrutamiento** JSON-RPC 2.0 |
-| **Estado a nivel JSON-RPC** | **Éxito (200 OK equivalente)**: La transacción RPC se completó normalmente | **Fallo**: La transacción RPC no se pudo resolver ni enrutar |
-| **Estructura raíz de la respuesta** | Contiene el objeto `"result"` (no existe `"error"`) | Contiene el objeto `"error"` (no existe `"result"`) |
-| **Campos distintivos** | `"isError": true` y `"content"` dentro de `"result"` | `"code": -32601` y `"message": "Method not found"` dentro de `"error"` |
-| **Causa del fallo** | La herramienta `read_text_file` validó que la ruta solicitada (`C:/Windows/win.ini`) viola la política de contención (*allowed directories*) del servidor | El despachador RPC del servidor no tiene ninguna función o manejador registrado para el método `herramientas/inventada` |
-| **Significado para un agente inteligente** | El agente puede leer el texto en `content` para comprender por qué falló su acción e intentar una ruta válida o una alternativa | El cliente/agente envió un comando inválido que rompe la especificación del protocolo; debe corregir el método invocado |
+| **Tipo de error** | **Error de ejecución de herramienta** (*Tool Execution Error*) | **Error de protocolo** (*JSON-RPC Protocol Error*) |
+| **Capa arquitectónica** | Capa de aplicación / lógica interna de la herramienta MCP | Capa de transporte y enrutamiento JSON-RPC 2.0 |
+| **Estado en JSON-RPC** | **Éxito (RPC válido):** El servidor procesó la petición sin fallo de protocolo. | **Fallo:** La solicitud no se pudo resolver ni despachar. |
+| **Estructura raíz** | Contiene el objeto `"result"`; **no** existe el campo `"error"`. | Contiene el objeto `"error"`; **no** existe el campo `"result"`. |
+| **Campos de reconocimiento** | 1. `"isError": true` dentro del objeto `result`.<br>2. `"content"` con el mensaje descriptivo para el agente. | 1. `"error"` a nivel raíz.<br>2. `"code": -32601` (*Method not found*).<br>3. `"message": "Method not found"`. |
+| **Causa técnica** | La herramienta `read_text_file` comprobó que la ruta solicitada escapa del directorio delimitado (`C:\AgentesInt\practica2-mcp`) e interrumpió la operación de lectura de forma segura. | El servidor MCP no tiene implementado ningún manejador para el procedimiento `herramientas/inventada`. |
 
 ---
 
-### 4.3 Análisis de los Campos de Reconocimiento
+## 6. Actividad D: Comparación de Dos Clientes
 
-#### ¿En qué campos se reconoció el Error de Ejecución de Herramienta (ID 5)?
-1. **Presencia de `"result"` y ausencia de `"error"` a nivel raíz:** Para el protocolo JSON-RPC, el servidor procesó exitosamente la solicitud. La llamada al método `tools/call` fue recibida, comprendida y atendida.
-2. **Campo `"isError": true` dentro de `"result"`:** Es el estándar definido por la especificación de MCP para indicar que la herramienta no pudo cumplir su objetivo. A diferencia de una excepción que tumbaría el canal de comunicación, MCP modela los fallos de herramientas como respuestas válidas que informan el error al cliente o modelo.
-3. **Campo `"content"` dentro de `"result"`:** Alberga un bloque de tipo `"text"` con el mensaje `"Access denied - path outside allowed directories: C:\\Windows\\win.ini not in C:\\AgentesInt\\practica2-mcp"`. Este contenido permite a un modelo de lenguaje o agente razonar sobre el motivo del rechazo sin que falle la infraestructura de comunicación.
+Se comparó el comportamiento del servidor ante dos clientes con diferentes arquitecturas y capacidades: **MCP Inspector** y **Cliente Mínimo**.
 
-#### ¿En qué campos se reconoció el Error de Protocolo (ID 6)?
-1. **Presencia de `"error"` a nivel raíz:** La respuesta carece por completo del campo `"result"`. La especificación JSON-RPC 2.0 estipula que una respuesta debe contener exclusivamente `"result"` o `"error"`, nunca ambos.
-2. **Campo `"error.code": -32601`:** Es el código numérico reservado estándar en la especificación JSON-RPC 2.0 para `Method not found` (Método no encontrado). Indica un fallo en el protocolo de comunicación antes de que cualquier lógica de negocio o herramienta sea invocada.
-3. **Campo `"error.message": "Method not found"`:** Cadena textual estándar que documenta el fallo sintáctico o semántico de la solicitud RPC enviada por el cliente.
+### Tabla Comparativa de Inicialización
 
----
-
-## 5. Actividad D: Comparación de Dos Clientes MCP
-
-En esta actividad se comparó el proceso de inicialización (`initialize`) y negociación de protocolo de dos clientes distintos conectados contra el mismo servidor (`@modelcontextprotocol/server-filesystem`):
-* **MCP Inspector (`salida/historial_inspector.json`)**: Cliente interactivo de diagnóstico oficial de MCP.
-* **Cliente mínimo (`salida/traza.jsonl`)**: Cliente ligero implementado en Node.js sobre `stdio`.
-
----
-
-### 5.1 Tabla Comparativa de Inicialización
-
-| Característica / Campo | Inspector (`historial_inspector.json`) | Cliente mínimo (`traza.jsonl`) |
+| Característica / Parámetro | Inspector (`historial_inspector.json`) | Cliente mínimo (`traza.jsonl`) |
 | :--- | :--- | :--- |
 | **Nombre y versión del cliente (`clientInfo`)** | `mcp-inspector` v2.14.0 | `cliente-minimo` v1.0.0 |
-| **Versión del protocolo que propuso el cliente** | `2025-11-25` | `2025-06-18` |
-| **Versión del protocolo que respondió el servidor** | `2025-11-25` | `2025-06-18` |
-| **Capacidades que declaró el cliente (`capabilities`)** | Declaró múltiples capacidades avanzadas:<br>• `roots: { listChanged: true }`<br>• `sampling: {}`<br>• `elicitation: { form: {}, url: {} }`<br>• `tasks: { list: {}, cancel: {}, requests: { sampling: {}, elicitation: {} } }`<br>• `extensions: { ... }` | Objeto vacío (`{}`): No declaró ninguna capacidad especial. |
+| **Versión del protocolo propuesta por el cliente** | `2025-11-25` | `2025-06-18` |
+| **Versión del protocolo respondida por el servidor** | `2025-11-25` | `2025-06-18` |
+| **Capacidades que declaró el cliente (`capabilities`)** | Declaró soporte para `roots` (`listChanged: true`), `sampling`, `elicitation`, `tasks` y extensiones. | Objeto vacío (`{}`): No declaró ninguna capacidad especial. |
 | **¿El servidor envió una solicitud al cliente? ¿Cuál?** | **Sí**. Envió la solicitud con método `"roots/list"` e `id: 0`. | **No**. El servidor no envió ninguna solicitud al cliente. |
 
----
+### Explicación del Comportamiento Diferenciado
 
-### 5.2 Explicación de por qué el Servidor se Comportó Distinto con Cada Cliente
+1. **Bidireccionalidad y capacidad `roots`:**  
+   El protocolo MCP sobre `stdio` permite comunicación bidireccional. Cuando el Inspector declaró la capacidad `"roots": { "listChanged": true }`, le indicó al servidor que el cliente gestiona dinámicamente las carpetas de trabajo. Por eso, tras recibir `notifications/initialized`, el servidor envió inmediatamente una solicitud inversa `roots/list` (id: 0) al Inspector. Por el contrario, el cliente mínimo declaró capacidades vacías (`{}`), lo que llevó al servidor a omitir la consulta inversa y usar las rutas pasadas en sus argumentos de línea de comandos.
 
-El comportamiento diferenciado del servidor responde a los principios de diseño del **Model Context Protocol**:
+2. **Negociación de versión del protocolo:**  
+   El servidor soporta ambas versiones (`2025-11-25` y `2025-06-18`). Al recibir una versión válida y dentro de su rango de soporte, el servidor confirma y adopta la versión solicitada por cada cliente, garantizando retrocompatibilidad.
 
-1. **Invocación bidireccional y negociación de capacidades (`roots/list`):**
-   * El protocolo MCP sobre `stdio` es **completamente bidireccional**: el servidor no solo responde a las solicitudes del cliente, sino que también puede actuar como emisor de solicitudes hacia el cliente si éste declara soportarlas.
-   * En el caso del **Inspector**, el cliente declaró la capacidad `"roots": { "listChanged": true }`. Esto le indica formalmente al servidor de sistema de archivos que el cliente gestiona dinámicamente las carpetas permitidas de trabajo (*roots*). En consecuencia, inmediatamente después de recibir la notificación `notifications/initialized`, el servidor envió al Inspector la solicitud inversa `roots/list` (id: 0) para consultar qué directorios raíz estaban autorizados.
-   * En el caso del **Cliente mínimo**, el campo de capacidades fue un objeto vacío (`capabilities: {}`). Al no declarar soporte para `roots`, el servidor emitió el mensaje informativo interno:  
-     `Client does not support MCP Roots, using allowed directories set from server args: [ 'C:\AgentesInt\practica2-mcp' ]`.  
-     Por este motivo, el servidor se abstuvo de enviar la solicitud `roots/list` y utilizó directamente la ruta pasada como argumento de línea de comandos en su inicio.
+### Resultado del Experimento (`protocolVersion: '1999-01-01'`)
 
-2. **Negociación retrocompatible de versión (`protocolVersion`):**
-   * El Inspector propuso `2025-11-25` y el cliente mínimo propuso `2025-06-18`.
-   * El servidor `@modelcontextprotocol/server-filesystem` soporta ambas especificaciones; por tanto, en ambos casos acordó operar con la versión exacta que cada cliente propuso, garantizando retrocompatibilidad con clientes anteriores y aprovechamiento de características modernas con clientes recientes.
-
----
-
-### 5.3 Experimento con Versión Inexistente (`protocolVersion: '1999-01-01'`)
-
-Para observar el mecanismo de negociación ante versiones no compatibles, se modificó temporalmente `cliente_mcp.mjs` proponiendo una versión inexistente:
+Se modificó temporalmente `cliente_mcp.mjs` proponiendo una versión inexistente:
 
 ```javascript
 await solicitar('initialize', {
@@ -195,40 +249,18 @@ await solicitar('initialize', {
 });
 ```
 
-#### Resultado Observado:
-* **Versión propuesta por el cliente:** `'1999-01-01'`
-* **Versión respondida por el servidor:** `'2025-11-25'`
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "protocolVersion": "2025-11-25",
-    "capabilities": {
-      "tools": { "listChanged": true },
-      "resources": { "listChanged": true }
-    },
-    "serverInfo": {
-      "name": "secure-filesystem-server",
-      "version": "2.3.0"
-    }
-  }
-}
-```
-
-#### Explicación Técnica del Experimento:
-El servidor MCP **no interrumpe la conexión ni arroja un error de protocolo** cuando el cliente solicita una versión desconocida. Siguiendo la especificación estándar de MCP, cuando el cliente propone una versión que el servidor no soporta, el servidor responde con la versión más reciente o más alta que tiene implementada (en este caso, `2025-11-25`). 
-
-A partir de esa respuesta, el cliente es el responsable de evaluar si la versión devuelta por el servidor le es compatible para continuar la conversación o si debe cerrar el canal de comunicación.
-
-> **Restauración:** Concluida la prueba, se restauró el valor original `protocolVersion: '2025-06-18'` en `cliente_mcp.mjs` y se ejecutó nuevamente el cliente, asegurando que la traza en `salida/traza.jsonl` mantenga intactos los 13 mensajes correspondientes a la Actividad C.
+* **Resultado observado:** El servidor **no arrojó un error de protocolo ni cerró la conexión**. En su lugar, respondió exitosamente estableciendo:
+  ```json
+  "protocolVersion": "2025-11-25"
+  ```
+* **Explicación técnica:** La especificación de MCP dicta que si el cliente solicita una versión desconocida o no soportada, el servidor debe responder con la versión más reciente/alta que tiene implementada (en este caso `2025-11-25`). El cliente es entonces el responsable de decidir si puede operar con esa versión o si debe desconectarse.
+* **Restauración:** Se restauró la versión original `'2025-06-18'` en `cliente_mcp.mjs` y se reejecutó el cliente, manteniendo intacta la traza de 13 mensajes de la Actividad C.
 
 ---
 
-## 6. Actividad E: Diagrama de Secuencia de la Sesión Completa
+## 7. Actividad E: Diagrama de Secuencia
 
-A continuación se presenta el diagrama de secuencia en formato Mermaid que modela la sesión completa del cliente mínimo (`cliente_mcp.mjs`) contra el servidor de sistema de archivos MCP, tal como quedó registrada en `salida/traza.jsonl` (13 mensajes divididos en tres fases: inicialización, operación y cierre):
+El siguiente diagrama en lenguaje Mermaid representa la sesión completa del cliente mínimo contra el servidor, estructurada en sus tres fases fundamentales:
 
 ```mermaid
 sequenceDiagram
@@ -256,36 +288,40 @@ Note over C,S: Cierre
 Note over C,S: El cliente cierra stdin (EOF) y el proceso del servidor finaliza
 ```
 
-### Detalle de las Fases del Diagrama
+---
 
-1. **Fase de Inicialización:**
-   * **Mensaje 1 (`C->>S`):** Solicitud `initialize` (id 1) proponiendo la versión de protocolo `2025-06-18` y capacidades vacías `{}`.
-   * **Mensaje 2 (`S-->>C`):** Respuesta exitosa `result` (id 1) del servidor confirmando la versión `2025-06-18`, sus capacidades y su identidad (`secure-filesystem-server`).
-   * **Mensaje 3 (`C-)S`):** Notificación unidireccional `notifications/initialized` (sin id) que da por concluida la negociación.
+## 8. Problemas encontrados
 
-2. **Fase de Operación:**
-   * **Mensaje 4 (`C->>S`):** Solicitud `tools/list` (id 2) para descubrir las herramientas ofrecidas por el servidor.
-   * **Mensaje 5 (`S-->>C`):** Respuesta `result` (id 2) con el catálogo completo de herramientas (`read_text_file`, `list_directory`, etc.).
-   * **Mensaje 6 (`C->>S`):** Solicitud `tools/call` (id 3) ejecutando `list_directory` sobre la carpeta `datos`.
-   * **Mensaje 7 (`S-->>C`):** Respuesta `result` (id 3) listando el archivo `[FILE] calificaciones.csv`.
-   * **Mensaje 8 (`C->>S`):** Solicitud `tools/call` (id 4) ejecutando `read_text_file` sobre `datos/calificaciones.csv`.
-   * **Mensaje 9 (`S-->>C`):** Respuesta `result` (id 4) devolviendo el texto plano del archivo CSV.
-   * **Mensaje 10 (`C->>S`):** Solicitud `tools/call` (id 5) intentando leer `C:/Windows/win.ini`.
-   * **Mensaje 11 (`S-->>C`):** Respuesta con `"result"` e `"isError": true` (**Error de ejecución de herramienta**) por violación de contención de directorio.
-   * **Mensaje 12 (`C->>S`):** Solicitud con método inexistente `herramientas/inventada` (id 6).
-   * **Mensaje 13 (`S-->>C`):** Respuesta con `"error"` y código `-32601` (**Error de protocolo**) al no existir el método solicitado.
+Durante el desarrollo y evaluación de la práctica se identificaron y resolvieron los siguientes aspectos técnicos:
 
-3. **Fase de Cierre:**
-   * El cliente ejecuta `servidor.stdin.end()`, cerrando el flujo de entrada estándar (`EOF`). Al no tener más datos por procesar, el subproceso del servidor finaliza ordenadamente.
+1. **Permisos y bloqueo de procesos hijos en entornos aislados:**
+   * *Problema:* Al ejecutar `cliente_mcp.mjs`, el proceso lanza `npx -y @modelcontextprotocol/server-filesystem .`. En entornos con restricciones de red o sandboxing estricto, `npx` puede demorarse o quedar a la espera si intenta verificar el registro de npm antes de iniciar el binario local.
+   * *Solución:* Se aseguró que el comando cuente con los permisos de entorno adecuados para ejecutar el subproceso hijo por `stdio` directo.
+2. **Control de concurrencia y bloqueo de Git en Windows (`index.lock`):**
+   * *Problema:* Durante las operaciones de versionado (`git add` y `git commit`) en Windows, el archivo `.git/index.lock` arrojaba error de permisos si se ejecutaba en un contexto que aislaba la carpeta oculta `.git`.
+   * *Solución:* Se otorgaron los permisos de acceso al sistema de archivos local para permitir a Git crear y liberar sus bloqueos transaccionales con normalidad.
+3. **Manejo de saltos de línea y delimitación JSON-RPC sobre `stdio`:**
+   * *Problema:* En Windows, los flujos estándar pueden emitir secuencias `\r\n` (CRLF). Si los fragmentos no se procesan línea por línea, `JSON.parse` puede fallar si concatena por error múltiples respuestas.
+   * *Verificación:* Se verificó que el cliente utilice el módulo nativo `node:readline` sobre `servidor.stdout`, garantizando que cada línea emitida sea evaluada de forma atómica e independiente.
+4. **Verificación de la integridad de la traza:**
+   * *Verificación:* Se comprobó mediante `Measure-Object` que el archivo `salida/traza.jsonl` contara con exactamente 13 líneas, verificando que la restauración de la versión en la Actividad D no alterara la salida definitiva de la Actividad C.
 
 ---
 
-## 7. Reproducción y Ejecución
+## 9. Fuentes
 
-Para ejecutar el cliente y regenerar la traza:
-
-```bash
-node cliente_mcp.mjs
-```
-
-El resultado en consola mostrará el intercambio completo de los 13 mensajes, guardándose simultáneamente en `salida/traza.jsonl`.
+1. **Model Context Protocol Specification:**  
+   Especificación oficial de la arquitectura MCP, ciclo de vida (`initialize`, `initialized`), transporte `stdio` y manejo de capacidades (`roots`, `tools`, `resources`).  
+   https://spec.modelcontextprotocol.io/
+2. **JSON-RPC 2.0 Specification:**  
+   Definición formal del protocolo JSON-RPC 2.0: objetos de solicitud (`id`, `method`, `params`), objetos de respuesta (`result`, `error`) y códigos de error estándar (código `-32601: Method not found`).  
+   https://www.jsonrpc.org/specification
+3. **Repositorio oficial de Servidores Model Context Protocol:**  
+   Código fuente, esquemas de herramientas y documentación de `@modelcontextprotocol/server-filesystem` y `@modelcontextprotocol/inspector`.  
+   https://github.com/modelcontextprotocol/servers
+4. **Documentación Oficial de Node.js (v24):**  
+   Guía de los módulos nativos `child_process` (`spawn`), `readline` (`createInterface`), y `fs` (`appendFileSync`, `writeFileSync`).  
+   https://nodejs.org/docs/
+5. **Documentación de Mermaid.js:**  
+   Guía de sintaxis para diagramas de secuencia (`sequenceDiagram`), actores, notas de separación de fases y tipos de flechas.  
+   https://mermaid.js.org/syntax/sequenceDiagram.html
